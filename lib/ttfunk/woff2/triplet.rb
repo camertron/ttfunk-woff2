@@ -62,12 +62,6 @@ module TTFunk
         def with_sign(flag, baseval)
           (flag & 1) == 0 ? -baseval : baseval
         end
-
-        def encoding_data
-          @encoding_data ||= YAML.load_file(
-            ::File.join(__dir__, 'triplet_encoding_data.yml')
-          )
-        end
       end
     end
   end
