@@ -105,14 +105,22 @@ module TTFunk
           x = 0
           y = 0
 
-          x_min = 0
-          y_min = 0
-          x_max = 0
-          y_max = 0
+          x_min = nil
+          y_min = nil
+          x_max = nil
+          y_max = nil
 
           coords.each do |dx, dy|
             x += dx
             y += dy
+
+            unless x_min
+              x_min = dx
+              y_min = dy
+              x_max = dx
+              y_max = dy
+              next
+            end
 
             x_max = x if x > x_max
             x_min = x if x < x_min
@@ -120,7 +128,7 @@ module TTFunk
             y_min = y if y < y_min
           end
 
-          [x_min, y_min, x_max, y_max]
+          [x_min || 0, y_min || 0, x_max || 0, y_max || 0]
         end
 
         def next_glyph(reader, n_points)
@@ -129,7 +137,7 @@ module TTFunk
           prev_dx = nil
           prev_dy = nil
 
-          n_points.times do
+          n_points.times do |i|
             cur_flags = reader.flag_stream.get
             is_on_curve = (cur_flags & 0x80) == 0
             dx, dy = reader.glyph_stream.get(cur_flags)
