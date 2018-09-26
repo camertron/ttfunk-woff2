@@ -4,10 +4,6 @@ module TTFunk
       class Glyf < TTFunk::Table
         attr_reader :glyphs
 
-        autoload :Compound,    'ttfunk/woff2/table/glyf/compound'
-        autoload :GlyphReader, 'ttfunk/woff2/table/glyf/glyph_reader'
-        autoload :Simple,      'ttfunk/woff2/table/glyf/simple'
-
         ARG_1_AND_2_ARE_WORDS    = 0x0001
         WE_HAVE_A_SCALE          = 0x0008
         MORE_COMPONENTS          = 0x0020
@@ -22,6 +18,10 @@ module TTFunk
         REPEAT_FLAG                 = 0x08
         X_IS_SAME_OR_POSITIVE_SHORT = 0x10
         Y_IS_SAME_OR_POSITIVE_SHORT = 0x20
+
+        def for(glyph_id)
+          # @TODO: also remove glyphs attr_reader
+        end
 
         private
 
