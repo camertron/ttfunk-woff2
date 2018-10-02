@@ -2,8 +2,6 @@ module TTFunk
   module WOFF2
     module Table
       class Glyf < TTFunk::Table
-        attr_reader :glyphs
-
         ARG_1_AND_2_ARE_WORDS    = 0x0001
         WE_HAVE_A_SCALE          = 0x0008
         MORE_COMPONENTS          = 0x0020
@@ -20,7 +18,7 @@ module TTFunk
         Y_IS_SAME_OR_POSITIVE_SHORT = 0x20
 
         def for(glyph_id)
-          # @TODO: also remove glyphs attr_reader
+          @glyphs[glyph_id]
         end
 
         private
@@ -55,12 +53,13 @@ module TTFunk
             n_points += n
           end
 
-          flags, coords = next_glyph(reader, n_points)
+          flags, x_deltas, y_deltas = next_glyph(reader, n_points)
 
-          x_min, y_min, x_max, y_max = if use_bbox
-            reader.bbox_stream.read(4)
+          if use_bbox
+            x_min, y_min, x_max, y_max = reader.bbox_stream.read(4)
           else
-            min_max(coords)
+            x_min, x_max = delta_min_max(x_deltas)
+            y_min, y_max = delta_min_max(y_deltas)
           end
 
           instruction_length = reader.glyph_stream.read_uint16_255(1).first
@@ -71,7 +70,14 @@ module TTFunk
             instruction_length: instruction_length,
             instruction_data: instruction_data || '',
             flags: flags,
-            coords: coords
+            x_deltas: x_deltas,
+            y_deltas: y_deltas,
+            n_contours: n_contours,
+            n_points: n_points,
+            x_min: x_min,
+            y_min: y_min,
+            x_max: x_max,
+            y_max: y_max
           )
 
           TTFunk::Table::Glyf::Simple.new(
@@ -82,91 +88,105 @@ module TTFunk
         def pack_glyph(options = {})
           result = ''.encode(Encoding::ASCII_8BIT)
 
+          result << [
+            options.fetch(:n_contours),
+            options.fetch(:x_min),
+            options.fetch(:y_min),
+            options.fetch(:x_max),
+            options.fetch(:y_max)
+          ].pack('n*')
+
           result << options.fetch(:end_points_of_contours).pack('n*')
           result << [options.fetch(:instruction_length)].pack('n')
           result << options.fetch(:instruction_data)
           result << options.fetch(:flags).pack('C*')
 
-          options.fetch(:coords).each do |dxy|
-            dxy.each do |coord|
-              if SHORT_RANGE.cover?(coord)
-                result << [coord.abs].pack('C')
-              else
-                coord = Utils.int_to_twos_comp(coord, bit_width: 16)
-                result << [coord].pack('n')
-              end
-            end
+          options.fetch(:x_deltas).each do |x_delta|
+            result << pack_delta(x_delta)
+          end
+
+          options.fetch(:y_deltas).each do |y_delta|
+            result << pack_delta(y_delta)
           end
 
           result
         end
 
-        def min_max(coords)
-          x = 0
-          y = 0
+        def pack_delta(da)
+          if SHORT_RANGE.cover?(da)
+            [da.abs].pack('C')
+          else
+            da = Utils.int_to_twos_comp(da, bit_width: 16)
+            [da].pack('n')
+          end
+        end
 
-          x_min = nil
-          y_min = nil
-          x_max = nil
-          y_max = nil
+        def delta_min_max(deltas)
+          a = 0
 
-          coords.each do |dx, dy|
-            x += dx
-            y += dy
+          a_min = nil
+          a_max = nil
 
-            unless x_min
-              x_min = dx
-              y_min = dy
-              x_max = dx
-              y_max = dy
+          deltas.each do |da|
+            a += da
+
+            unless a_min
+              a_min = da
+              a_max = da
               next
             end
 
-            x_max = x if x > x_max
-            x_min = x if x < x_min
-            y_max = y if y > y_max
-            y_min = y if y < y_min
+            a_max = a if a > a_max
+            a_min = a if a < a_min
           end
 
-          [x_min || 0, y_min || 0, x_max || 0, y_max || 0]
+          [a_min || 0, a_max || 0]
         end
 
         def next_glyph(reader, n_points)
           flags = []
-          coords = []
+          x_deltas = []
+          y_deltas = []
           prev_dx = nil
           prev_dy = nil
+          last_flags = nil
 
           n_points.times do |i|
             cur_flags = reader.flag_stream.get
             is_on_curve = (cur_flags & 0x80) == 0
             dx, dy = reader.glyph_stream.get(cur_flags)
-            coords << [dx, dy]
+            x_deltas << dx
+            y_deltas << dy
 
             glyph_flags = 0
             glyph_flags |= 0x01 if is_on_curve
 
+            # if dx == 0
+            #   glyph_flags |= X_IS_SAME_OR_POSITIVE_SHORT
             if SHORT_RANGE.cover?(dx)
-              glyph_flags |= X_SHORT_VECTOR
-              glyph_flags |= X_IS_SAME_OR_POSITIVE_SHORT if dx >= 0
-            elsif dx == prev_dx
-              glyph_flags |= X_IS_SAME_OR_POSITIVE_SHORT
+              glyph_flags |= X_SHORT_VECTOR | (dx > 0 ? X_IS_SAME_OR_POSITIVE_SHORT : 0)
             end
 
+            # if dy == 0
+            #   glyph_flags |= X_SHORT_VECTOR
             if SHORT_RANGE.cover?(dy)
-              glyph_flags |= Y_SHORT_VECTOR
-              glyph_flags |= Y_IS_SAME_OR_POSITIVE_SHORT if dy >= 0
-            elsif dy == prev_dy
-              glyph_flags | Y_IS_SAME_OR_POSITIVE_SHORT
+              glyph_flags |= Y_SHORT_VECTOR | (dy > 0 ? Y_IS_SAME_OR_POSITIVE_SHORT : 0)
             end
+
+            # if glyph_flags == last_flags && repeat_count != 255
+            #   # @TODO
+            #   dst[flag_offset - 1] |= kGlyfRepeat;
+            #   repeat_count++;
+            # end
 
             prev_dx = dx
             prev_dy = dy
 
             flags << glyph_flags
+            last_flags = glyph_flags
           end
 
-          [flags, coords]
+          [flags, x_deltas, y_deltas]
         end
 
         def parse_composite(reader, n_contours, use_bbox)

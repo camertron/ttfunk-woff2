@@ -88,7 +88,7 @@ module TTFunk
         return int if int >= 0
 
         # xor flips the bits
-        (int ^ ((1 << bit_width) - 1)) + 1
+        (int.abs ^ ((1 << bit_width) - 1)) + 1
       end
 
       def checksum(data)
